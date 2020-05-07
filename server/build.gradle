@@ -1,0 +1,54 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.3.72'
+    id 'com.google.cloud.tools.jib' version '2.2.0'
+    id 'application'
+}
+
+application {
+    mainClassName = "zone.disco.shoebox.ApplicationKt"
+}
+
+group 'zone.disco.shoebox'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation "io.javalin:javalin:3.8.0"
+    implementation "org.slf4j:slf4j-simple:1.7.28"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.11.0"
+    implementation "com.fasterxml.jackson.module:jackson-module-kotlin:2.11.0"
+    testImplementation group: 'junit', name: 'junit', version: '4.12'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+}
+
+distZip.enabled = false
+distTar.enabled = false
+
+compileKotlin {
+    kotlinOptions.jvmTarget = "11"
+}
+compileTestKotlin {
+    kotlinOptions.jvmTarget = "11"
+}
+
+jib {
+    from {
+        image = "azul/zulu-openjdk-alpine:11.0.6"
+    }
+    container {
+        mainClass = "zone.disco.shoebox.ApplicationKt"
+        // TODO: use runtime env var for this?
+        jvmFlags = [
+                "-XX:+UseG1GC",
+                "-Xmx100m",
+                "-XX:+UseStringDeduplication"
+        ]
+    }
+}
