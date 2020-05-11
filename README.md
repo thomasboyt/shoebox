@@ -6,7 +6,7 @@ shoebox is an experiment in creating a little virtual space to hang out with fri
 
 ### connect
 
-shoebox.disco.zone
+[shoebox.disco.zone](https://shoebox.disco.zone/)
 
 ### run in dev
 
