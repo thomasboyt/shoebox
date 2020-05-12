@@ -1,30 +1,28 @@
 import React, { Component } from 'react';
-import { produce } from 'immer';
 import { parseServerMessage } from '../messages/ServerMessage';
 import { World } from './World';
 import { Position } from '../state';
 import { ClientMoveMessage } from '../messages/ClientMessage';
 import { CallManager } from '../CallManager';
 import { Join } from './Join';
-import { updateState, WorldState, Effect, Action } from '../state';
+import { initState, updateState, WorldState, Effect, Action } from '../state';
 
 interface Props {
   roomCode: string;
 }
 
 export class Room extends Component<Props, WorldState> {
+  state: Readonly<WorldState> = initState();
+
   ws?: WebSocket;
   callManager!: CallManager;
 
-  state: Readonly<WorldState> = {
-    didJoin: false,
-    roomState: null,
-    openCalls: new Set(),
-    userId: null,
-    log: [],
+  handleJoin = async (userName: string, stream: MediaStream) => {
+    await this.initCallManager(stream);
+    this.initWebSocket(userName);
   };
 
-  handleJoin = async (userName: string, stream: MediaStream) => {
+  async initCallManager(stream: MediaStream) {
     this.callManager = new CallManager();
     this.callManager.onOpenCall = (peerId) =>
       this.updateState({ type: 'openedCall', peerId });
@@ -32,7 +30,9 @@ export class Room extends Component<Props, WorldState> {
       this.updateState({ type: 'closedCall', peerId });
 
     await this.callManager.init(stream);
+  }
 
+  initWebSocket(userName: string) {
     const params = new URLSearchParams({
       room: this.props.roomCode,
       userName,
@@ -49,7 +49,7 @@ export class Room extends Component<Props, WorldState> {
     this.setState({
       didJoin: true,
     });
-  };
+  }
 
   handleMessage = (evt: MessageEvent) => {
     let unparsedMsg: unknown;
@@ -82,11 +82,7 @@ export class Room extends Component<Props, WorldState> {
   }
 
   updateState(action: Action) {
-    let effects: Effect[] = [];
-    const newState = produce(this.state, (newState) => {
-      effects = updateState(newState, action) || [];
-    });
-
+    const [newState, effects] = updateState(this.state, action);
     this.setState(newState);
 
     for (const effect of effects) {

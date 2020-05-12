@@ -29,3 +29,13 @@ export interface WorldState {
   // most recent chat messages to display
   // chatBubbles: { [userId: string]: ChatBubble };
 }
+
+export function initState(): WorldState {
+  return {
+    didJoin: false,
+    roomState: null,
+    openCalls: new Set(),
+    userId: null,
+    log: [],
+  };
+}

@@ -1,4 +1,4 @@
-import { Draft } from 'immer';
+import produce, { Draft } from 'immer';
 import { Action } from './actions';
 import { Effect } from './effects';
 import { WorldState, Position } from './models';
@@ -41,10 +41,31 @@ function updateConfirmedMove(state: Draft<WorldState>): Effect[] {
   return effects;
 }
 
-export function updateState(
+/**
+ * Turns a reducer into an immer produce() call. Would be unnecessary if produce
+ * let us return arbitrary values, but not so bad really.
+ */
+function makeUpdater<T, A, E>(
+  cb: (draft: Draft<T>, action: A) => E[] | E | undefined
+): (state: T, action: A) => [T, E[]] {
+  return (state, action) => {
+    let effects: E[] = [];
+    const newState = produce(state, (draft) => {
+      const ret = cb(draft, action);
+      if (Array.isArray(ret)) {
+        effects = ret;
+      } else if (typeof ret === 'object') {
+        effects = [ret];
+      }
+    });
+    return [newState, effects];
+  };
+}
+
+function reducer(
   state: Draft<WorldState>,
   action: Action
-): Effect[] | undefined {
+): Effect[] | Effect | undefined {
   if (action.type === 'messageReceived') {
     const msg = action.msg;
     if (msg.type === 'sync') {
@@ -105,3 +126,5 @@ export function updateState(
     state.openCalls.delete(userId);
   }
 }
+
+export const updateState = makeUpdater(reducer);
