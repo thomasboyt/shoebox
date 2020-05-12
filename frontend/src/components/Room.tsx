@@ -2,35 +2,21 @@ import React, { Component } from 'react';
 import { produce } from 'immer';
 import { parseServerMessage } from '../messages/ServerMessage';
 import { World } from './World';
-import { RoomState, Position } from '../models/RoomState';
+import { Position } from '../state';
 import { ClientMoveMessage } from '../messages/ClientMessage';
 import { CallManager } from '../CallManager';
 import { Join } from './Join';
+import { updateState, WorldState, Effect, Action } from '../state';
 
 interface Props {
   roomCode: string;
 }
 
-interface State {
-  didJoin: boolean;
-  roomState: RoomState | null;
-  userId: string | null;
-  log: string[];
-  openCalls: Set<string>;
-}
-
-export const CALL_MAX_RADIUS = 80;
-function inCallRadius(a: Position, b: Position): boolean {
-  const distance = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-  console.log(a, b, distance);
-  return distance < CALL_MAX_RADIUS * 2;
-}
-
-export class Room extends Component<Props, State> {
+export class Room extends Component<Props, WorldState> {
   ws?: WebSocket;
   callManager!: CallManager;
 
-  state: Readonly<State> = {
+  state: Readonly<WorldState> = {
     didJoin: false,
     roomState: null,
     openCalls: new Set(),
@@ -40,8 +26,11 @@ export class Room extends Component<Props, State> {
 
   handleJoin = async (userName: string, stream: MediaStream) => {
     this.callManager = new CallManager();
-    this.callManager.onOpenCall = this.handleOpenCall;
-    this.callManager.onCloseCall = this.handleCloseCall;
+    this.callManager.onOpenCall = (peerId) =>
+      this.updateState({ type: 'openedCall', peerId });
+    this.callManager.onCloseCall = (peerId) =>
+      this.updateState({ type: 'closedCall', peerId });
+
     await this.callManager.init(stream);
 
     const params = new URLSearchParams({
@@ -78,89 +67,30 @@ export class Room extends Component<Props, State> {
       return;
     }
 
-    if (msg.type === 'sync') {
-      this.setState({ roomState: msg });
-    } else if (msg.type === 'identity') {
-      this.setState({ userId: msg.userId });
-    } else if (msg.type === 'joined') {
-      const roomState = this.state.roomState;
-      if (!roomState) {
-        return;
-      }
-
-      const newState = produce(roomState, (nextState) => {
-        nextState.users[msg.userId] = msg.user;
-        nextState.positions[msg.userId] = msg.position;
-      });
-      this.setState({ roomState: newState });
-
-      this.appendLog(`${msg.user.name} joined!`);
-    } else if (msg.type === 'left') {
-      const roomState = this.state.roomState;
-      if (!roomState) {
-        return;
-      }
-
-      const user = roomState.users[msg.userId];
-      if (!user) {
-        return;
-      }
-
-      const newState = produce(roomState, (nextState) => {
-        delete nextState.users[msg.userId];
-        delete nextState.positions[msg.userId];
-      });
-      this.setState({ roomState: newState });
-
-      this.appendLog(`${user.name} left!`);
-    } else if (msg.type === 'move') {
-      const roomState = this.state.roomState;
-      if (!roomState) {
-        return;
-      }
-
-      const newState = produce(roomState, (nextState) => {
-        nextState.positions[msg.userId] = msg.position;
-      });
-      this.setState({ roomState: newState });
-
-      if (msg.userId === this.state.userId) {
-        this.updateConfirmedMove();
-      } else {
-        // we duplicate the disconnect-call check on both sides bc firefox
-        // is bad and doesn't send a proper close event immediately :(
-        const myPosition = newState.positions[this.state.userId!];
-        if (!inCallRadius(msg.position, myPosition)) {
-          this.callManager.closeCall(roomState.users[msg.userId].peerId);
-        }
-      }
-    }
+    this.updateState({
+      type: 'messageReceived',
+      msg,
+    });
   };
 
-  appendLog(message: string) {
-    this.setState({
-      log: produce(this.state.log, (log) => {
-        log.unshift(message);
-      }),
-    });
+  handleEffect(newState: WorldState, effect: Effect) {
+    if (effect.type === 'openCall') {
+      this.callManager.callPeer(effect.peerId);
+    } else if (effect.type === 'closeCall') {
+      this.callManager.closeCall(effect.peerId);
+    }
   }
 
-  // Clients are in charge of updating their current calls when they move
-  updateConfirmedMove() {
-    const roomState = this.state.roomState!;
-    const position = roomState.positions[this.state.userId!];
+  updateState(action: Action) {
+    let effects: Effect[] = [];
+    const newState = produce(this.state, (newState) => {
+      effects = updateState(newState, action) || [];
+    });
 
-    for (const userId of Object.keys(roomState.users)) {
-      if (userId === this.state.userId) {
-        continue;
-      }
+    this.setState(newState);
 
-      // these calls are no-ops if call is open/closed respectively
-      if (inCallRadius(roomState.positions[userId], position)) {
-        this.callManager.callPeer(roomState.users[userId].peerId);
-      } else {
-        this.callManager.closeCall(roomState.users[userId].peerId);
-      }
+    for (const effect of effects) {
+      this.handleEffect(newState, effect);
     }
   }
 
@@ -171,34 +101,6 @@ export class Room extends Component<Props, State> {
     const msg: ClientMoveMessage = { type: 'move', x, y };
     this.ws.send(JSON.stringify(msg));
   };
-
-  handleOpenCall = (peerId: string) => {
-    const userId = this.getUserIdByPeerId(peerId);
-    this.setState({
-      openCalls: produce(this.state.openCalls, (openCalls) => {
-        openCalls.add(userId);
-      }),
-    });
-  };
-
-  handleCloseCall = (peerId: string) => {
-    const userId = this.getUserIdByPeerId(peerId);
-    this.setState({
-      openCalls: produce(this.state.openCalls, (openCalls) => {
-        openCalls.delete(userId);
-      }),
-    });
-  };
-
-  getUserIdByPeerId(peerId: string): string {
-    const userId = Object.keys(this.state.roomState!.users).find(
-      (userId) => this.state.roomState!.users[userId].peerId === peerId
-    );
-    if (!userId) {
-      throw new Error(`no user found for peer ${peerId}`);
-    }
-    return userId;
-  }
 
   render() {
     if (!this.state.didJoin) {
@@ -217,9 +119,12 @@ export class Room extends Component<Props, State> {
         )}
         <h3>log</h3>
         <ul style={{ listStyleType: 'none', paddingLeft: '0px' }}>
-          {this.state.log.map((entry) => (
-            <li key={entry}>{entry}</li>
-          ))}
+          {this.state.log
+            .slice()
+            .reverse()
+            .map((entry, idx) => (
+              <li key={idx}>{entry}</li>
+            ))}
         </ul>
         <h3>state</h3>
         <pre>{JSON.stringify(this.state.roomState, null, 2)}</pre>

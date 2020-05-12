@@ -1,7 +1,6 @@
 import React, { Component, CSSProperties, SyntheticEvent } from 'react';
-import { User, Position } from '../models/RoomState';
+import { User, Position, CALL_MAX_RADIUS } from '../state';
 import defaultAvatar from '../../assets/defaultAvatar.png';
-import { CALL_MAX_RADIUS } from './Room';
 
 interface Props {
   user: User;

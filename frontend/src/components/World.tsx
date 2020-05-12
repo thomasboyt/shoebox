@@ -1,5 +1,5 @@
 import React, { Component, MouseEvent, createRef } from 'react';
-import { RoomState, Position } from '../models/RoomState';
+import { RoomState, Position } from '../state';
 import mallarch from '../../assets/backgrounds/mallarch.gif';
 import { Avatar } from './Avatar';
 
